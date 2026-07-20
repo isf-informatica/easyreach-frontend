@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getDevices, addDevice, deleteDevice } from '../../api/devices'
+import { getDevices, addDevice, deleteDevice, getCommandResult } from '../../api/devices'
 import { sendCommand } from '../../api/commands'
 
 const actions = [
@@ -84,10 +84,28 @@ export default function Devices() {
     setCmdResult(null)
     try {
       const res = await sendCommand(id, action.cmd)
-      setCmdResult({ type: 'success', message: `Command "${action.label}" queued! (ID: ${res.id}) — agent will execute in ~30 sec` })
+      setCmdResult({ type: 'info', message: `⏳ Waiting for agent response...` })
+
+      let attempts = 0
+      const poll = setInterval(async () => {
+        attempts++
+        try {
+          const result = await getCommandResult(res.id)
+          if (result.status === 'done') {
+            clearInterval(poll)
+            setCmdLoading(null)
+            setCmdResult({ type: 'success', message: `✅ ${action.label}:\n${result.result}` })
+          }
+        } catch {}
+        if (attempts >= 12) {
+          clearInterval(poll)
+          setCmdLoading(null)
+          setCmdResult({ type: 'error', message: '⏱ Timeout — agent did not respond' })
+        }
+      }, 5000)
+
     } catch (err) {
       setCmdResult({ type: 'error', message: err.response?.data?.detail || 'Failed to send command' })
-    } finally {
       setCmdLoading(null)
     }
   }
@@ -99,11 +117,29 @@ export default function Devices() {
     setShowScript(false)
     try {
       const res = await sendCommand(id, 'RUN_SCRIPT', { script: scriptInput })
-      setCmdResult({ type: 'success', message: `Script queued! (ID: ${res.id}) — agent will execute in ~30 sec` })
+      setCmdResult({ type: 'info', message: `⏳ Script queued — waiting for agent...` })
       setScriptInput('')
+
+      let attempts = 0
+      const poll = setInterval(async () => {
+        attempts++
+        try {
+          const result = await getCommandResult(res.id)
+          if (result.status === 'done') {
+            clearInterval(poll)
+            setCmdLoading(null)
+            setCmdResult({ type: 'success', message: `✅ Script result:\n${result.result}` })
+          }
+        } catch {}
+        if (attempts >= 12) {
+          clearInterval(poll)
+          setCmdLoading(null)
+          setCmdResult({ type: 'error', message: '⏱ Timeout — agent did not respond' })
+        }
+      }, 5000)
+
     } catch (err) {
       setCmdResult({ type: 'error', message: 'Failed to send script' })
-    } finally {
       setCmdLoading(null)
     }
   }
@@ -236,7 +272,7 @@ export default function Devices() {
                   )
                 })}
                 <div onClick={() => setShowAdd(true)}
-                  className="bg-[#F5F9FF] border-2 border-dashed border-[#C7E6FF] rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer min-height-36 transition-all hover:border-[#60A5FA] hover:bg-[#EBF5FF]"
+                  className="bg-[#F5F9FF] border-2 border-dashed border-[#C7E6FF] rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-all hover:border-[#60A5FA] hover:bg-[#EBF5FF]"
                   style={{minHeight:'144px'}}>
                   <i className="ti ti-plus text-2xl text-[#A0B8D0]" aria-hidden="true"></i>
                   <span className="text-xs text-[#A0B8D0]">Add system</span>
@@ -264,7 +300,13 @@ export default function Devices() {
 
                 {/* Command result */}
                 {cmdResult && (
-                  <div className={`mb-4 px-4 py-3 rounded-xl text-xs ${cmdResult.type === 'success' ? 'bg-[#E8FFF5] text-[#1A6B4A] border border-[#A7F0D4]' : 'bg-[#FFF0F0] text-[#C62828] border border-[#FFCDD2]'}`}>
+                  <div className={`mb-4 px-4 py-3 rounded-xl text-xs whitespace-pre-wrap font-mono ${
+                    cmdResult.type === 'success'
+                      ? 'bg-[#0D2B1F] text-[#34D399] border border-[#1A4731]'
+                      : cmdResult.type === 'info'
+                      ? 'bg-[#1a3a5c] text-[#60A5FA] border border-[#2D5A8A]'
+                      : 'bg-[#2D0A0A] text-[#F87171] border border-[#7F1D1D]'
+                  }`}>
                     {cmdResult.message}
                   </div>
                 )}
@@ -274,11 +316,15 @@ export default function Devices() {
                     <div key={cmd}
                       onClick={() => !cmdLoading && handleAction({ icon, label, cmd, color, confirm: needConfirm, hasInput })}
                       className="rounded-xl p-3 text-center cursor-pointer transition-all relative"
-                      style={{ background: cmdLoading === cmd ? '#1a3a5c' : '#25476E', border: '1px solid #2D5A8A', opacity: cmdLoading && cmdLoading !== cmd ? 0.6 : 1 }}
+                      style={{
+                        background: cmdLoading === cmd ? '#1a3a5c' : '#25476E',
+                        border: '1px solid #2D5A8A',
+                        opacity: cmdLoading && cmdLoading !== cmd ? 0.6 : 1
+                      }}
                       onMouseEnter={e => e.currentTarget.style.borderColor = color}
                       onMouseLeave={e => e.currentTarget.style.borderColor = '#2D5A8A'}>
                       {cmdLoading === cmd ? (
-                        <i className="ti ti-loader text-xl block mb-1" style={{ color }} aria-hidden="true"></i>
+                        <i className="ti ti-loader-2 text-xl block mb-1 animate-spin" style={{ color }} aria-hidden="true"></i>
                       ) : (
                         <i className={`ti ${icon} text-xl block mb-1`} style={{ color }} aria-hidden="true"></i>
                       )}
