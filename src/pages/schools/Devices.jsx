@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getDevices, addDevice, deleteDevice, getCommandResult } from '../../api/devices'
 import { sendCommand } from '../../api/commands'
+import useAuthStore from '../../store/authStore'
 
-const actions = [
+const serverActions = [
   { icon: 'ti-terminal-2', label: 'Network Info', cmd: 'NETWORK_INFO', color: '#60A5FA' },
   { icon: 'ti-device-floppy', label: 'Disk Info', cmd: 'DISK_INFO', color: '#34D399' },
   { icon: 'ti-apps', label: 'Processes', cmd: 'PROCESS_LIST', color: '#A78BFA' },
@@ -18,9 +19,21 @@ const actions = [
   { icon: 'ti-code', label: 'Run Script', cmd: 'RUN_SCRIPT', color: '#34D399', hasInput: true },
 ]
 
+const systemActions = [
+  { icon: 'ti-terminal-2', label: 'Network Info', cmd: 'NETWORK_INFO', color: '#60A5FA' },
+  { icon: 'ti-device-floppy', label: 'Disk Info', cmd: 'DISK_INFO', color: '#34D399' },
+  { icon: 'ti-apps', label: 'Processes', cmd: 'PROCESS_LIST', color: '#A78BFA' },
+  { icon: 'ti-info-circle', label: 'System Info', cmd: 'SYSTEM_INFO', color: '#F59E0B' },
+  { icon: 'ti-refresh', label: 'Restart', cmd: 'RESTART', color: '#F59E0B', confirm: true },
+  { icon: 'ti-power', label: 'Shutdown', cmd: 'SHUTDOWN', color: '#C62828', confirm: true },
+  { icon: 'ti-lock', label: 'Lock PC', cmd: 'LOCK', color: '#7BA7C7' },
+  { icon: 'ti-code', label: 'Run Script', cmd: 'RUN_SCRIPT', color: '#34D399', hasInput: true },
+]
+
 export default function Devices() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const token = useAuthStore(state => state.token)
   const [data, setData] = useState({ server: [], systems: [] })
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -62,6 +75,40 @@ export default function Devices() {
     } catch { alert('Failed to delete') }
   }
 
+  const downloadAgent = async (deviceId, deviceName) => {
+    try {
+      const res = await fetch(
+        `https://dolphin-app-33jp4.ondigitalocean.app/easyreach/schools/${id}/devices/${deviceId}/generate-agent`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (!res.ok) throw new Error('Failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `easyreach_agent_${deviceName}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch { alert('Failed to download agent ZIP') }
+  }
+
+  const downloadServerAgent = async () => {
+    try {
+      const res = await fetch(
+        `https://dolphin-app-33jp4.ondigitalocean.app/easyreach/schools/${id}/generate-server-agent`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (!res.ok) throw new Error('Failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `easyreach_server_agent.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch { alert('Failed to download server agent ZIP') }
+  }
+
   const handleConnect = (device) => {
     setConnecting(device.id)
     setTimeout(() => {
@@ -83,7 +130,9 @@ export default function Devices() {
     setCmdLoading(action.cmd)
     setCmdResult(null)
     try {
-      const res = await sendCommand(id, action.cmd)
+      const isSystem = connectedDevice?.device_type === 'system'
+      const deviceId = isSystem ? connectedDevice.id : null
+      const res = await sendCommand(id, action.cmd, {}, deviceId)
       setCmdResult({ type: 'info', message: `⏳ Waiting for agent response...` })
 
       let attempts = 0
@@ -116,7 +165,9 @@ export default function Devices() {
     setCmdResult(null)
     setShowScript(false)
     try {
-      const res = await sendCommand(id, 'RUN_SCRIPT', { script: scriptInput })
+      const isSystem = connectedDevice?.device_type === 'system'
+      const deviceId = isSystem ? connectedDevice.id : null
+      const res = await sendCommand(id, 'RUN_SCRIPT', { script: scriptInput }, deviceId)
       setCmdResult({ type: 'info', message: `⏳ Script queued — waiting for agent...` })
       setScriptInput('')
 
@@ -145,6 +196,7 @@ export default function Devices() {
   }
 
   const connectedDevice = [...(data.server || []), ...(data.systems || [])].find(d => d.id === connectedId)
+  const currentActions = connectedDevice?.device_type === 'server' ? serverActions : systemActions
   const inputCls = "w-full rounded-xl px-3.5 py-2.5 text-sm border border-[#D4E8FF] bg-white text-[#1E3A5F] outline-none focus:border-[#60A5FA] placeholder-[#A0B8D0]"
   const labelCls = "block text-xs font-medium text-[#5B7FA6] mb-1.5"
 
@@ -205,6 +257,11 @@ export default function Devices() {
                     className="flex items-center gap-1.5 text-xs text-[#7C3AED] bg-[#F3F0FF] border border-[#DDD6FE] px-3 py-2 rounded-lg cursor-pointer">
                     <i className="ti ti-terminal-2" aria-hidden="true"></i> Access
                   </button>
+                  <button onClick={downloadServerAgent}
+                    title="Download Server Agent ZIP"
+                    className="text-xs text-[#7C3AED] bg-[#F3F0FF] border border-[#DDD6FE] px-3 py-2 rounded-lg cursor-pointer">
+                    <i className="ti ti-download" aria-hidden="true"></i>
+                  </button>
                   <button onClick={() => handleDelete(data.server[0].id)}
                     className="text-xs text-[#C62828] bg-[#FFF0F0] border border-[#FFCDD2] px-3 py-2 rounded-lg cursor-pointer">
                     <i className="ti ti-trash" aria-hidden="true"></i>
@@ -263,6 +320,11 @@ export default function Devices() {
                             {isConning ? 'Connecting...' : 'Connect'}
                           </button>
                         )}
+                        <button onClick={() => downloadAgent(device.id, device.name)}
+                          title="Download Agent ZIP"
+                          className="text-xs text-[#1D6FAD] bg-[#EBF5FF] border border-[#C7E6FF] px-3 py-2 rounded-lg cursor-pointer">
+                          <i className="ti ti-download" aria-hidden="true"></i>
+                        </button>
                         <button onClick={() => handleDelete(device.id)}
                           className="text-xs text-[#C62828] bg-[#FFF0F0] border border-[#FFCDD2] px-3 py-2 rounded-lg cursor-pointer">
                           <i className="ti ti-trash" aria-hidden="true"></i>
@@ -289,7 +351,9 @@ export default function Devices() {
                       Full access — {connectedDevice.name}
                     </div>
                     <div className="text-xs text-[#7BA7C7] mt-0.5">
-                      Session active · Commands go to school server agent
+                      {connectedDevice.device_type === 'server'
+                        ? 'Server · School agent'
+                        : `PC · ${connectedDevice.ip_address || 'IP not set'}`}
                     </div>
                   </div>
                   <button onClick={handleDisconnect}
@@ -298,7 +362,6 @@ export default function Devices() {
                   </button>
                 </div>
 
-                {/* Command result */}
                 {cmdResult && (
                   <div className={`mb-4 px-4 py-3 rounded-xl text-xs whitespace-pre-wrap font-mono ${
                     cmdResult.type === 'success'
@@ -312,7 +375,7 @@ export default function Devices() {
                 )}
 
                 <div className="grid grid-cols-4 gap-3">
-                  {actions.map(({ icon, label, cmd, color, confirm: needConfirm, hasInput }) => (
+                  {currentActions.map(({ icon, label, cmd, color, confirm: needConfirm, hasInput }) => (
                     <div key={cmd}
                       onClick={() => !cmdLoading && handleAction({ icon, label, cmd, color, confirm: needConfirm, hasInput })}
                       className="rounded-xl p-3 text-center cursor-pointer transition-all relative"

@@ -3,4 +3,3 @@ deployment:
   tasks:
     - export DEPLOYPATH=/home/xvab81z3s6vx/public_html/easyreach.easylearn.org.in/
     - /bin/cp -r dist/* $DEPLOYPATH
-    - /bin/cp /home/xvab81z3s6vx/public_html/easyreach.easylearn.org.in/.htaccess /home/xvab81z3s6vx/public_html/easyreach.easylearn.org.in/.htaccess
